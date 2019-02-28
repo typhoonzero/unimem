@@ -1,0 +1,1 @@
+cc_test(rw_lock_test SRCS rw_lock_test.cc)
