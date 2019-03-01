@@ -10,6 +10,7 @@
 // Any allocator can 
 class Allocator {
  public:
+  Allocator();
   virtual ~Allocator() {};
 
  // disable copy assign
