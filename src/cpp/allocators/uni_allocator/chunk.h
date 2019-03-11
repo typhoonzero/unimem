@@ -1,18 +1,7 @@
 #pragma once
 
 #include <stdlib.h>
-
-#define SIZE_T_SIZE         sizeof(size_t)
-#define TWO_SIZE_T_SIZES    (SIZE_T_SIZE << 2)
-
-#define SIZE_T_ONE          (static_cast<size_t>(1))
-#define SIZE_T_TWO          (static_cast<size_t>(2))
-#define SIZE_T_FOUR         (static_cast<size_t>(4))
-#define PINUSE_BIT          (SIZE_T_ONE)
-#define CINUSE_BIT          (SIZE_T_TWO)
-#define FLAG4_BIT           (SIZE_T_FOUR)
-#define INUSE_BITS          (PINUSE_BIT|CINUSE_BIT)
-#define FLAG_BITS           (PINUSE_BIT|CINUSE_BIT|FLAG4_BIT)
+#include "size_bits.h"
 
 class Chunk {
  public:
@@ -63,7 +52,17 @@ class Chunk {
     this->head = (s|PINUSE_BIT|CINUSE_BIT);
   }
 
- private:
+  inline void clear_pinuse() {
+    head &= ~PINUSE_BIT;
+  }
+
+  inline void set_free_with_pinuse(size_t s, ChunkPtr next) {
+    next->clear_pinuse();
+    set_size_and_pinuse_of_free_chunk(s);
+  }
+
+ public:
+  /* This four fields must be the same as TreeChunk. */
   size_t prev_foot;        /* Size of previous chunk (if free).  */
   size_t head;             /* Size and inuse bits. */
   Chunk* fd = nullptr;     /* Double links, used only if free. */
@@ -90,9 +89,21 @@ typedef Chunk* SBinPtr;
 #define MIN_CHUNK_SIZE\
   ((MCHUNK_SIZE + CHUNK_ALIGN_MASK) & ~CHUNK_ALIGN_MASK)
 
+/* the number of bytes to offset an address to align it */
+#define align_offset(A)\
+ ((((size_t)(A) & CHUNK_ALIGN_MASK) == 0)? 0 :\
+  ((MALLOC_ALIGNMENT - ((size_t)(A) & CHUNK_ALIGN_MASK)) & CHUNK_ALIGN_MASK))
 
 /* chunk associated with aligned address A */
-#define align_as_chunk(A)   (ChunkPtr)((A) + align_offset(chunk2mem(A)))
+#define align_as_chunk(A)   (ChunkPtr)((A) + align_offset(A->chunk2mem()))
+
+/*
+  TOP_FOOT_SIZE is padding at the end of a segment, including space
+  that may be needed to place segment records and fenceposts when new
+  noncontiguous segments are added.
+*/
+#define TOP_FOOT_SIZE\
+  (align_offset(chunk2mem(0))+pad_request(sizeof(struct malloc_segment))+MIN_CHUNK_SIZE)
 
 /* Bounds on request (not chunk) sizes. */
 #define MAX_REQUEST         ((-MIN_CHUNK_SIZE) << 2)
@@ -109,3 +120,5 @@ typedef Chunk* SBinPtr;
 #define chunk_plus_offset(p, s)  ((ChunkPtr)(((char*)(p)) + (s)))
 #define chunk_minus_offset(p, s) ((ChunkPtr)(((char*)(p)) - (s)))
 
+/* Check if address of next chunk n is higher than base chunk p */
+#define ok_next(p, n)    ((char*)(p) < (char*)(n))

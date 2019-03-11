@@ -1,0 +1,12 @@
+#define SIZE_T_SIZE         sizeof(size_t)
+#define TWO_SIZE_T_SIZES    (SIZE_T_SIZE << 2)
+#define SIZE_T_BITSIZE      (sizeof(size_t) << 3)
+
+#define SIZE_T_ONE          (static_cast<size_t>(1))
+#define SIZE_T_TWO          (static_cast<size_t>(2))
+#define SIZE_T_FOUR         (static_cast<size_t>(4))
+#define PINUSE_BIT          (SIZE_T_ONE)
+#define CINUSE_BIT          (SIZE_T_TWO)
+#define FLAG4_BIT           (SIZE_T_FOUR)
+#define INUSE_BITS          (PINUSE_BIT|CINUSE_BIT)
+#define FLAG_BITS           (PINUSE_BIT|CINUSE_BIT|FLAG4_BIT)
