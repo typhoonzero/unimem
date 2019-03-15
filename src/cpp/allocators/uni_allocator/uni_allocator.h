@@ -30,8 +30,6 @@ typedef unsigned int flag_t;
 #define small_index2size(i) ((i)  << SMALLBIN_SHIFT)
 #define MIN_SMALL_INDEX     (small_index(MIN_CHUNK_SIZE))
 
-#define smallbin_at(M, i)   ((SBinPtr)((char*)&((M)->smallbins[(i)<<1])))
-
 // checks
 #define RTCHECK(e)  __builtin_expect(e, 1)
 #define MAX_RELEASE_CHECK_RATE MAX_SIZE_T
@@ -41,34 +39,29 @@ class UniAllocator : public Allocator {
  public:
   explicit UniAllocator(Allocator* underlying_allocator, 
                         size_t increasing_size,
-                        Device* device) : 
+                        const Device& device) : 
     underlying_allocator_(underlying_allocator),
     increasing_size_(increasing_size),
-    increasing_step_(1),
-    // copy device info
-    device_(*device) {
+    increasing_step_(1) {
       gm_ = new MallocState;
-      // TODO: do init MallocState here
+      device_ = device;  // copy
   };
   virtual ~UniAllocator();
 
   void InitOrExpand();
-  void* Alloc(size_t bytes);
+  void* Alloc(size_t size);
   void Free(void* ptr);
-
- private:
-  void AllocInternalIncrease();
 
  private:
   Allocator* underlying_allocator_;
   size_t increasing_size_;
   size_t increasing_step_;
-  Device device_;
   // NOTE: that typical allocators store metadata together with actual
   // memory chunks, but for on device memory, it may be a waist to store
   // metadata in device, because we may always need to find the device
   // memory pointer from CPU side, should find a better way to do this.
 
+ public:
   // Currently, we must store metadata on device memory for correctly
   // indexing the real device memory pointer.
   struct MallocState {
@@ -105,7 +98,8 @@ class UniAllocator : public Allocator {
     void init_top(ChunkPtr p, size_t psize) {
       /* Ensure alignment */
       size_t offset = align_offset(p->chunk2mem());
-      p = static_cast<ChunkPtr>((char*)p + offset);
+      p = reinterpret_cast<ChunkPtr>(
+        reinterpret_cast<char*>(p) + offset);
       psize -= offset;
 
       top = p;
@@ -122,7 +116,7 @@ class UniAllocator : public Allocator {
       /* Establish circular links for smallbins */
       bindex_t i;
       for (i = 0; i < NSMALLBINS; ++i) {
-        SBinPtr bin = smallbin_at(gm_, i);
+        SBinPtr bin = smallbin_at(i);
         bin->fd = bin->bk = bin;
       }
     }
@@ -150,6 +144,11 @@ class UniAllocator : public Allocator {
     inline size_t treemap_is_marked(size_t i) {
       return (treemap & idx2bit(i));
     }
+    inline SBinPtr smallbin_at(size_t i) {
+      return reinterpret_cast<SBinPtr>(
+        reinterpret_cast<char*>(&(this->smallbins[(i) << 1]))
+      );
+    }
 
     /* isolate the least set bit of a bitmap */
     inline binmap_t least_bit(binmap_t x) {
@@ -168,10 +167,10 @@ class UniAllocator : public Allocator {
     }
 
     inline bool ok_address(ChunkPtr a) {
-      return (static_cast<char*>(a) >= least_addr);
+      return (reinterpret_cast<char*>(a) >= least_addr);
     }
     inline bool ok_address(TreeChunkPtr a) {
-      return (static_cast<char*>(a) >= least_addr);
+      return (reinterpret_cast<char*>(a) >= least_addr);
     }
     /* Unlink the first chunk from a smallbin */
     inline void unlink_first_small_chunk(ChunkPtr B, ChunkPtr P, size_t I) {
@@ -193,7 +192,7 @@ class UniAllocator : public Allocator {
     // TODO: can put this in chunks's member since it do not depend on gm_
     inline void set_inuse_and_pinuse(ChunkPtr p, size_t s) {
       p->head = (s | PINUSE_BIT | CINUSE_BIT);
-      (static_cast<ChunkPtr>((static_cast<char*>(p)) + (s)))->head |= PINUSE_BIT;
+      (reinterpret_cast<ChunkPtr>((reinterpret_cast<char*>(p)) + s))->head |= PINUSE_BIT;
     }
 
     /* Set size, cinuse and pinuse bit of this chunk */
@@ -204,12 +203,12 @@ class UniAllocator : public Allocator {
     /* Check properties of any chunk, whether free, inuse, mmapped etc  */
     inline void do_check_any_chunk(ChunkPtr p) {
       DEBUG_ASSERT((is_aligned(p->chunk2mem())) || (p->head == FENCEPOST_HEAD));
-      DEBUG_ASSERT(gm_->ok_address(p));
+      DEBUG_ASSERT(ok_address(p));
     }
 
     /* Check properties of inuse chunks */
     inline void do_check_inuse_chunk(ChunkPtr p) {
-      gm_->do_check_any_chunk(p);
+      do_check_any_chunk(p);
       DEBUG_ASSERT(is_inuse(p));
       DEBUG_ASSERT(next_pinuse(p));
       /* If not pinuse and not mmapped, previous chunk has OK offset */
@@ -218,27 +217,29 @@ class UniAllocator : public Allocator {
 
     /* Check properties of malloced chunks at the point they are malloced */
     inline void do_check_malloced_chunk(void* mem, size_t s) {
+#ifdef DEBUG
       if (mem != 0) {
         ChunkPtr p = mem2chunk(mem);
         size_t sz = p->head & ~INUSE_BITS;
-        gm_->do_check_inuse_chunk(p);
+        do_check_inuse_chunk(p);
         DEBUG_ASSERT((sz & CHUNK_ALIGN_MASK) == 0);
         DEBUG_ASSERT(sz >= MIN_CHUNK_SIZE);
         DEBUG_ASSERT(sz >= s);
         /* unless mmapped, size is less than MIN_CHUNK_SIZE more than request */
         DEBUG_ASSERT(sz < (s + MIN_CHUNK_SIZE));
       }
+#endif
     }
 
     /* Link a free chunk into a smallbin  */
     inline void insert_small_chunk(ChunkPtr P, size_t S) {
       bindex_t I  = small_index(S);
-      ChunkPtr B = smallbin_at(gm_, I);
+      ChunkPtr B = smallbin_at(I);
       ChunkPtr F = B;
       assert(S >= MIN_CHUNK_SIZE);
-      if (!gm_->smallmap_is_marked(I)) {
-        gm_->mark_smallmap(I);
-      } else if (RTCHECK(gm_->ok_address(B->fd))) {
+      if (!smallmap_is_marked(I)) {
+        mark_smallmap(I);
+      } else if (RTCHECK(ok_address(B->fd))) {
         F = B->fd;
       } else {
         throw MemoryCorruptedException();
@@ -260,7 +261,9 @@ class UniAllocator : public Allocator {
       if (!treemap_is_marked(I)) {
         mark_treemap(I);
         *H = X;
-        X->parent = static_cast<TreeChunkPtr>(H);
+        // X->parent = static_cast<TreeChunkPtr>(H);
+        // FIXME: this is the orignal error?
+        X->parent = static_cast<TreeChunkPtr>(*H);
         X->fd = X->bk = X;
       } else {
         TreeChunkPtr T = *H;
@@ -271,7 +274,7 @@ class UniAllocator : public Allocator {
             K <<= 1;
             if (*C != 0) {
               T = *C;
-            } else if (RTCHECK(ok_address(C))) {
+            } else if (RTCHECK(ok_address(*C))) {
               *C = X;
               X->parent = T;
               X->fd = X->bk = X;
@@ -313,7 +316,7 @@ class UniAllocator : public Allocator {
       assert(is_small(DVS));
       if (DVS != 0) {
         ChunkPtr DV = dv;
-        gm_->insert_small_chunk(DV, DVS);
+        insert_small_chunk(DV, DVS);
       }
       dvsize = S;
       dv = P;
@@ -345,7 +348,7 @@ class UniAllocator : public Allocator {
                 (*(CP = &(R->child[0])) != 0)) {
             R = *(RP = CP);
           }
-          if (RTCHECK(ok_address(RP))) {
+          if (RTCHECK(ok_address(*RP))) {
             *RP = 0;
           } else {
             throw MemoryCorruptedException();
@@ -456,7 +459,7 @@ class UniAllocator : public Allocator {
     TreeChunkPtr t;
     bindex_t idx;
     compute_tree_index(nb, &idx);
-    if ((t = *gm_->treebin_at(idx)) != 0) {
+    if ((t = *treebin_at(idx)) != 0) {
       /* Traverse tree for this bin looking for node with size == nb */
       size_t sizebits = nb << leftshift_for_tree_index(idx);
       TreeChunkPtr rst = 0;  /* The deepest untaken right subtree */
@@ -480,7 +483,7 @@ class UniAllocator : public Allocator {
       }
     }
     if (t == 0 && v == 0) { /* set t to root of next non-empty treebin */
-      binmap_t leftbits = left_bits(idx2bit(idx)) & gm_->treemap;
+      binmap_t leftbits = left_bits(idx2bit(idx)) & treemap;
       if (leftbits != 0) {
         bindex_t i;
         binmap_t leastbit = least_bit(leftbits);
@@ -528,10 +531,10 @@ class UniAllocator : public Allocator {
     DEBUG_ASSERT(P != B);
     DEBUG_ASSERT(P != F);
     DEBUG_ASSERT(chunksize(P) == small_index2size(I));
-    if (RTCHECK(F == smallbin_at(gm_, I) || (ok_address(F) && F->bk == P))) {
+    if (RTCHECK(F == smallbin_at(I) || (ok_address(F) && F->bk == P))) {
       if (B == F) {
         clear_smallmap(I);
-      } else if (RTCHECK(B == smallbin_at(gm_, I) ||
+      } else if (RTCHECK(B == smallbin_at(I) ||
                       (ok_address(B) && B->fd == P))) {
         F->bk = B;
         B->fd = F;
@@ -554,6 +557,7 @@ class UniAllocator : public Allocator {
 
   /* Check properties of free chunks */
   inline void do_check_free_chunk(ChunkPtr p) {
+#ifdef DEBUG
     size_t sz = p->chunksize();
     ChunkPtr next = chunk_plus_offset(p, sz);
     do_check_any_chunk(p);
@@ -573,15 +577,20 @@ class UniAllocator : public Allocator {
         DEBUG_ASSERT(sz == SIZE_T_SIZE);
       }
     }
+#endif
   }
 
   inline bool should_trim(size_t s) {
     return s > trim_check;
   }
+  // FIXME: correct this function
+  inline int sys_trim(size_t pad) {
+    return 1;
+  }
 
-  };
+  };  // struct MallocState
+
   typedef MallocState* MallocStatePtr;
-
   // global malloc state
-  static MallocStatePtr gm_;
+  MallocStatePtr gm_;
 };

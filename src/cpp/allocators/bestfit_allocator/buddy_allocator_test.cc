@@ -19,6 +19,7 @@ TEST(buddy_allocator, AllocationTest) {
     void* ptr = a->Alloc(i * sizeof(float));
     a->Free(ptr);
   }
+  delete a;
 }
 
 int main(int argc, char** argv) {

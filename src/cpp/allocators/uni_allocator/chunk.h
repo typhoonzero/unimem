@@ -3,12 +3,19 @@
 #include <stdlib.h>
 #include "size_bits.h"
 
+class Chunk;
+// FIXME(typhoonzero): change to use c++ style unique_ptr.
+typedef Chunk* ChunkPtr;
+// small bin pointer
+typedef Chunk* SBinPtr;
+
 class Chunk {
  public:
   Chunk();
 
   inline void* chunk2mem() {
-    return (static_cast<void*>(this) + TWO_SIZE_T_SIZES);
+    return static_cast<void*>(
+      reinterpret_cast<char*>(this) + TWO_SIZE_T_SIZES);
   }
   inline size_t cinuse () {
     return this->head & CINUSE_BIT;
@@ -70,13 +77,9 @@ class Chunk {
 };
 
 inline Chunk* mem2chunk(void* mem) {
-  return static_cast<Chunk*>(mem - TWO_SIZE_T_SIZES);
+  return reinterpret_cast<Chunk*>(
+    static_cast<char*>(mem) - TWO_SIZE_T_SIZES);
 }
-
-// FIXME(typhoonzero): change to use c++ style unique_ptr.
-typedef Chunk* ChunkPtr;
-/* small bin pointer */
-typedef Chunk* SBinPtr;
 
 #define MALLOC_ALIGNMENT ((size_t)(2 * sizeof(void *)))
 #define CHUNK_OVERHEAD      (SIZE_T_SIZE)
@@ -102,8 +105,9 @@ typedef Chunk* SBinPtr;
   that may be needed to place segment records and fenceposts when new
   noncontiguous segments are added.
 */
-#define TOP_FOOT_SIZE\
-  (align_offset(chunk2mem(0))+pad_request(sizeof(struct malloc_segment))+MIN_CHUNK_SIZE)
+// #define TOP_FOOT_SIZE\
+//  (align_offset(chunk2mem(0))+pad_request(sizeof(struct malloc_segment))+MIN_CHUNK_SIZE)
+#define TOP_FOOT_SIZE SIZE_T_SIZE
 
 /* Bounds on request (not chunk) sizes. */
 #define MAX_REQUEST         ((-MIN_CHUNK_SIZE) << 2)

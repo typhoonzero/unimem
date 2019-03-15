@@ -16,5 +16,9 @@ include(gtest)
 message(STATUS "CXX compiler: ${CMAKE_CXX_COMPILER}, version: "
   "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 
+include_directories(${CMAKE_SOURCE_DIR})
+
 add_subdirectory("src/cpp/rw_lock")
 add_subdirectory("src/cpp/allocators/bestfit_allocator")
+add_subdirectory("src/cpp/allocators/uni_allocator")
+

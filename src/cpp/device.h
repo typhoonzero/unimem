@@ -14,4 +14,4 @@ struct Device {
   //       is not managed here for now. If needed, should use
   //       boost::variant to serve completely different types.
   size_t idx_;
-}
+};

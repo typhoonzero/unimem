@@ -1,4 +1,6 @@
-#include "uni_allocator.h"
+#include "src/cpp/allocators/uni_allocator/uni_allocator.h"
+
+#include <iostream>
 
 /*
  * NOTE: The most part of this file is copied form Doug Lea's implementation.
@@ -9,12 +11,12 @@
 */
 
 void UniAllocator::InitOrExpand() {
+  std::cout << "InitOrExpand, increasing_step_" << increasing_step_ << std::endl;
   // Since device memory do not have utilities like "morecore" or "mmap"
   // we can not allocate a **INCREASE** memory which keeps the base address
   // the same.
   size_t tsize = increasing_size_ * increasing_step_;
-  auto mem_block = underlying_allocator_->Alloc(device_, tsize);
-  char* tbase = static_cast<char*>(mem_block->ptr_);
+  char* tbase = static_cast<char*>(underlying_allocator_->Alloc(tsize));
   
   // tbase should be sys_alloced memory
   if (!gm_->is_initialized()) { /* first-time initialization */
@@ -28,8 +30,13 @@ void UniAllocator::InitOrExpand() {
     gm_->magic = SIZE_T_ONE;
     gm_->release_checks = MAX_RELEASE_CHECK_RATE;
     gm_->init_bins();
-    gm_->init_top(static_cast<ChunkPtr>(tbase), tsize - TOP_FOOT_SIZE);
+    gm_->init_top(reinterpret_cast<ChunkPtr>(tbase), tsize - TOP_FOOT_SIZE);
   }
+}
+
+
+UniAllocator::~UniAllocator() {
+  delete gm_;
 }
 
 void* UniAllocator::Alloc(size_t bytes) {
@@ -46,7 +53,7 @@ void* UniAllocator::Alloc(size_t bytes) {
     if ((smallbits & 0x3U) != 0) { /* Remainderless fit to a smallbin. */
       ChunkPtr b, p;
       idx += ~smallbits & 1;       /* Uses next bin if idx empty */
-      b = smallbin_at(gm_, idx);
+      b = gm_->smallbin_at(idx);
       p = b->fd;
       DEBUG_ASSERT(p->chunksize() == small_index2size(idx));
       gm_->unlink_first_small_chunk(b, p, idx);
@@ -63,7 +70,7 @@ void* UniAllocator::Alloc(size_t bytes) {
         binmap_t leftbits = (smallbits << idx) & gm_->left_bits(gm_->idx2bit(idx));
         binmap_t leastbit = gm_->least_bit(leftbits);
         gm_->compute_bit2idx(leastbit, &i);
-        b = smallbin_at(gm_, i);
+        b = gm_->smallbin_at(i);
         p = b->fd;
         DEBUG_ASSERT(chunksize(p) == small_index2size(i));
         gm_->unlink_first_small_chunk(b, p, i);
@@ -125,7 +132,9 @@ void* UniAllocator::Alloc(size_t bytes) {
     return mem;
   }
 
-  mem = sys_alloc(gm_, nb);
+  InitOrExpand();
+  mem = Alloc(bytes);
+  // mem = sys_alloc(gm_, nb);
   return mem;
 }
 
@@ -149,7 +158,6 @@ void UniAllocator::Free(void* mem) {
 #else /* FOOTERS */
 #define fm gm
 #endif /* FOOTERS */
-    // if (!PREACTION(fm)) {
     gm_->do_check_inuse_chunk(p);
     if (RTCHECK(gm_->ok_address(p) && p->is_inuse())) {
       size_t psize = p->chunksize();
@@ -191,7 +199,7 @@ void UniAllocator::Free(void* mem) {
               gm_->dvsize = 0;
             }
             if (gm_->should_trim(tsize)) {
-              sys_trim(gm_, 0);
+              gm_->sys_trim(0);
             }
             return;
           } else if (next == gm_->dv) {

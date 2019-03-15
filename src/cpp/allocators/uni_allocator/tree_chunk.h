@@ -7,7 +7,7 @@ typedef unsigned int bindex_t;
 
 class TreeChunk;
 typedef TreeChunk* TreeChunkPtr;
-typedef struct TreeChunk* tbinptr; /* The type of bins of trees */
+typedef TreeChunk* tbinptr; /* The type of bins of trees */
 
 // NOTE: TreeChunk shares all the public member functions with Chunk
 class TreeChunk : public Chunk {
