@@ -34,7 +34,6 @@ void UniAllocator::InitOrExpand() {
   }
 }
 
-
 UniAllocator::~UniAllocator() {
   delete gm_;
 }
@@ -139,7 +138,6 @@ void* UniAllocator::Alloc(size_t bytes) {
 }
 
 /* ---------------------------- free --------------------------- */
-
 void UniAllocator::Free(void* mem) {
   /*
      Consolidate freed chunks with preceeding or succeeding bordering
@@ -164,12 +162,6 @@ void UniAllocator::Free(void* mem) {
       ChunkPtr next = chunk_plus_offset(p, psize);
       if (!p->pinuse()) {
         size_t prevsize = p->prev_foot;
-        // if (is_mmapped(p)) {
-        //   psize += prevsize + MMAP_FOOT_PAD;
-        //   if (CALL_MUNMAP((char*)p - prevsize, psize) == 0)
-        //     fm->footprint -= psize;
-        //   goto postaction;
-        // } else {
         {
           ChunkPtr prev = chunk_minus_offset(p, prevsize);
           psize += prevsize;

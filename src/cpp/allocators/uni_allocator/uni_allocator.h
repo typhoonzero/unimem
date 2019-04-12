@@ -56,31 +56,33 @@ class UniAllocator : public Allocator {
   Allocator* underlying_allocator_;
   size_t increasing_size_;
   size_t increasing_step_;
+  
+
+ public:
   // NOTE: that typical allocators store metadata together with actual
   // memory chunks, but for on device memory, it may be a waist to store
   // metadata in device, because we may always need to find the device
   // memory pointer from CPU side, should find a better way to do this.
-
- public:
-  // Currently, we must store metadata on device memory for correctly
-  // indexing the real device memory pointer.
+  //
+  // In the global MallocState struct, bitmaps and and chunk metas are
+  // stored in CPU memory.
   struct MallocState {
-    binmap_t   smallmap;
-    binmap_t   treemap;
-    size_t     dvsize;
-    size_t     topsize;
-    char*      least_addr;
-    Chunk*     dv;
-    Chunk*     top;
-    size_t     trim_check;
-    size_t     release_checks;
-    size_t     magic;
-    Chunk*     smallbins[(NSMALLBINS+1)*2];
+    binmap_t     smallmap;
+    binmap_t     treemap;
+    size_t       dvsize;
+    size_t       topsize;
+    char*        least_addr;
+    Chunk*       dv;
+    Chunk*       top;
+    size_t       trim_check;
+    size_t       release_checks;
+    size_t       magic;
+    Chunk*       smallbins[(NSMALLBINS+1)*2];
     TreeChunk*   treebins[NTREEBINS];
-    size_t     footprint;
-    size_t     max_footprint;
-    size_t     footprint_limit; /* zero means no limit */
-    flag_t     mflags;
+    size_t       footprint;
+    size_t       max_footprint;
+    size_t       footprint_limit; /* zero means no limit */
+    flag_t       mflags;
   #if USE_LOCKS
     MLOCK_T    mutex;     /* locate lock among fields that rarely change */
   #endif /* USE_LOCKS */

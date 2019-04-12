@@ -1,13 +1,12 @@
 #pragma once
 
 #include <stdlib.h>
-#include "size_bits.h"
+#include "src/cpp/allocators/uni_allocator/size_bits.h"
 
+// TODO: change to use c++ style unique_ptr.
 class Chunk;
-// FIXME(typhoonzero): change to use c++ style unique_ptr.
-typedef Chunk* ChunkPtr;
-// small bin pointer
-typedef Chunk* SBinPtr;
+typedef Chunk* ChunkPtr;       /* Chunk pointer */
+typedef Chunk* SBinPtr;        /* Small bin */
 
 class Chunk {
  public:
@@ -105,6 +104,7 @@ inline Chunk* mem2chunk(void* mem) {
   that may be needed to place segment records and fenceposts when new
   noncontiguous segments are added.
 */
+// NOTE: below lines are original define of TOP_FOOT_SIZE
 // #define TOP_FOOT_SIZE\
 //  (align_offset(chunk2mem(0))+pad_request(sizeof(struct malloc_segment))+MIN_CHUNK_SIZE)
 #define TOP_FOOT_SIZE SIZE_T_SIZE
